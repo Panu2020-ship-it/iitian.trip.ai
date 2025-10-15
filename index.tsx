@@ -1,7 +1,7 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
-*/
+ */
 import {FunctionDeclaration, GoogleGenAI, Type} from '@google/genai';
 
 // Fix: Add TypeScript declarations for the Google Maps API and custom Popup class to resolve type errors.
@@ -23,7 +23,6 @@ let markers = []; // Array to store map markers
 let lines = []; // Array to store polylines representing routes/connections
 let popUps = []; // Array to store custom popups for locations
 let bounds; // Google Maps LatLngBounds object to fit map around points
-let activeCardIndex = 0; // Index of the currently selected location card
 let isPlannerMode = false; // Flag to indicate if Day Planner mode is active
 let dayPlanItinerary = []; // Array to hold structured items for the day plan timeline
 const RECENT_SEARCHES_KEY = 'mapExplorerRecentSearches';
@@ -31,26 +30,16 @@ const MAX_RECENT_SEARCHES = 5;
 let recentSearches: string[] = [];
 
 // DOM Element references
-const generateButton = document.querySelector('#generate');
-const resetButton = document.querySelector('#reset');
+const generateButton = document.querySelector('#generate') as HTMLButtonElement;
+const resetButton = document.querySelector('#reset') as HTMLButtonElement;
 const cardContainer = document.querySelector(
   '#card-container',
 ) as HTMLDivElement;
-const carouselIndicators = document.querySelector(
-  '#carousel-indicators',
-) as HTMLDivElement;
-const prevCardButton = document.querySelector(
-  '#prev-card',
-) as HTMLButtonElement;
-const nextCardButton = document.querySelector(
-  '#next-card',
-) as HTMLButtonElement;
-const cardCarousel = document.querySelector('.card-carousel') as HTMLDivElement;
 const plannerModeToggle = document.querySelector(
   '#planner-mode-toggle',
 ) as HTMLInputElement;
-const timelineContainer = document.querySelector(
-  '#timeline-container',
+const timelineView = document.querySelector(
+  '#timeline-view',
 ) as HTMLDivElement;
 const timeline = document.querySelector('#timeline') as HTMLDivElement;
 const closeTimelineButton = document.querySelector(
@@ -59,14 +48,15 @@ const closeTimelineButton = document.querySelector(
 const exportPlanButton = document.querySelector(
   '#export-plan',
 ) as HTMLButtonElement;
-const mapContainer = document.querySelector('#map-container');
-const timelineToggle = document.querySelector('#timeline-toggle');
-const mapOverlay = document.querySelector('#map-overlay');
-const spinner = document.querySelector('#spinner');
-const errorMessage = document.querySelector('#error-message');
+const spinner = document.querySelector('#spinner') as HTMLDivElement;
+const errorMessage = document.querySelector('#error-message') as HTMLDivElement;
 const recentSearchesContainer = document.querySelector(
   '#recent-searches-container',
 ) as HTMLDivElement;
+const sidebar = document.querySelector('#sidebar') as HTMLElement;
+const sidebarToggle = document.querySelector(
+  '#sidebar-toggle',
+) as HTMLButtonElement;
 
 // Initializes the Google Map instance and necessary libraries.
 async function initMap() {
@@ -87,50 +77,38 @@ async function initMap() {
   });
 
   // Define a custom Popup class extending Google Maps OverlayView.
-  // This allows for custom HTML content near map markers.
   window.Popup = class Popup extends google.maps.OverlayView {
     position;
     containerDiv;
     constructor(position, content) {
       super();
       this.position = position;
-      content.classList.add('popup-bubble');
 
       this.containerDiv = document.createElement('div');
       this.containerDiv.classList.add('popup-container');
       this.containerDiv.appendChild(content); // Append the actual content here
-      // Prevent clicks inside the popup from propagating to the map.
       Popup.preventMapHitsAndGesturesFrom(this.containerDiv);
     }
-
-    /** Called when the popup is added to the map via setMap(). */
     onAdd() {
       this.getPanes().floatPane.appendChild(this.containerDiv);
     }
-
-    /** Called when the popup is removed from the map via setMap(null). */
     onRemove() {
       if (this.containerDiv.parentElement) {
         this.containerDiv.parentElement.removeChild(this.containerDiv);
       }
     }
-
-    /** Called each frame when the popup needs to draw itself. */
     draw() {
       const divPosition = this.getProjection().fromLatLngToDivPixel(
         this.position,
       );
-      // Hide the popup when it is far out of view for performance.
       const display =
         Math.abs(divPosition.x) < 4000 && Math.abs(divPosition.y) < 4000
           ? 'block'
           : 'none';
-
       if (display === 'block') {
         this.containerDiv.style.left = divPosition.x + 'px';
         this.containerDiv.style.top = divPosition.y + 'px';
       }
-
       if (this.containerDiv.style.display !== display) {
         this.containerDiv.style.display = display;
       }
@@ -149,24 +127,14 @@ const locationFunctionDeclaration: FunctionDeclaration = {
     type: Type.OBJECT,
     description: 'Geographic coordinates of a location.',
     properties: {
-      name: {
-        type: Type.STRING,
-        description: 'Name of the location.',
-      },
+      name: {type: Type.STRING, description: 'Name of the location.'},
       description: {
         type: Type.STRING,
         description:
           'Description of the location: why is it relevant, details to know.',
       },
-      lat: {
-        type: Type.STRING,
-        description: 'Latitude of the location.',
-      },
-      lng: {
-        type: Type.STRING,
-        description: 'Longitude of the location.',
-      },
-      // Properties specific to Day Planner mode
+      lat: {type: Type.STRING, description: 'Latitude of the location.'},
+      lng: {type: Type.STRING, description: 'Longitude of the location.'},
       time: {
         type: Type.STRING,
         description:
@@ -201,31 +169,18 @@ const lineFunctionDeclaration: FunctionDeclaration = {
         type: Type.OBJECT,
         description: 'Start location of the route',
         properties: {
-          lat: {
-            type: Type.STRING,
-            description: 'Latitude of the start location.',
-          },
-          lng: {
-            type: Type.STRING,
-            description: 'Longitude of the start location.',
-          },
+          lat: {type: Type.STRING, description: 'Latitude of the start location.'},
+          lng: {type: Type.STRING, description: 'Longitude of the start location.'},
         },
       },
       end: {
         type: Type.OBJECT,
         description: 'End location of the route',
         properties: {
-          lat: {
-            type: Type.STRING,
-            description: 'Latitude of the end location.',
-          },
-          lng: {
-            type: Type.STRING,
-            description: 'Longitude of the end location.',
-          },
+          lat: {type: Type.STRING, description: 'Latitude of the end location.'},
+          lng: {type: Type.STRING, description: 'Longitude of the end location.'},
         },
       },
-      // Properties specific to Day Planner mode
       transport: {
         type: Type.STRING,
         description:
@@ -301,54 +256,27 @@ Remember: In default mode, respond to ANY query by finding relevant locations to
 
 // Initialize the Google AI client.
 const ai = new GoogleGenAI({
-  vertexai: false,
-  // Fix: Use the correct environment variable for the API key as per the coding guidelines.
   apiKey: process.env.API_KEY,
 });
 
 // Functions to control the visibility of the timeline panel.
 function showTimeline() {
-  if (timelineContainer) {
-    timelineContainer.style.display = 'block';
-
-    // Delay adding 'visible' class for CSS transition effect.
-    setTimeout(() => {
-      timelineContainer.classList.add('visible');
-
-      if (window.innerWidth > 768) {
-        // Desktop view
-        mapContainer.classList.add('map-container-shifted');
-        adjustInterfaceForTimeline(true);
-        window.dispatchEvent(new Event('resize')); // Force map redraw
-      } else {
-        // Mobile view
-        mapOverlay.classList.add('visible');
-      }
-    }, 10);
-  }
+  if (timelineView) timelineView.style.display = 'block';
+  if (cardContainer) cardContainer.style.display = 'none';
 }
 
 function hideTimeline() {
-  if (timelineContainer) {
-    timelineContainer.classList.remove('visible');
-    mapContainer.classList.remove('map-container-shifted');
-    mapOverlay.classList.remove('visible');
-    adjustInterfaceForTimeline(false);
-
-    // Wait for transition before setting display to none.
-    setTimeout(() => {
-      timelineContainer.style.display = 'none';
-      window.dispatchEvent(new Event('resize'));
-    }, 300);
-  }
+  if (timelineView) timelineView.style.display = 'none';
+  if (cardContainer) cardContainer.style.display = 'block';
 }
 
-// Adjusts map bounds when the timeline visibility changes.
-function adjustInterfaceForTimeline(isTimelineVisible) {
-  if (bounds && map) {
-    setTimeout(() => {
-      map.fitBounds(bounds);
-    }, 350); // Delay to allow layout adjustments
+function toggleSidebar(forceOpen = false) {
+  if (window.innerWidth <= 820) {
+    if (forceOpen) {
+      sidebar.classList.add('open');
+    } else {
+      sidebar.classList.toggle('open');
+    }
   }
 }
 
@@ -356,14 +284,11 @@ function adjustInterfaceForTimeline(isTimelineVisible) {
 function renderRecentSearches() {
   if (!recentSearchesContainer) return;
   recentSearchesContainer.innerHTML = '';
-
-  if (recentSearches.length === 0) {
-    return;
-  }
+  if (recentSearches.length === 0) return;
 
   const title = document.createElement('div');
   title.className = 'recent-searches-title';
-  title.textContent = 'Recent Searches';
+  title.textContent = 'Recent';
   recentSearchesContainer.appendChild(title);
 
   recentSearches.forEach((prompt) => {
@@ -372,8 +297,7 @@ function renderRecentSearches() {
     item.textContent = prompt;
     item.addEventListener('click', () => {
       promptInput.value = prompt;
-      const buttonEl = document.getElementById('generate') as HTMLButtonElement;
-      buttonEl.classList.add('loading');
+      generateButton.classList.add('loading');
       sendText(prompt);
       recentSearchesContainer.style.display = 'none';
     });
@@ -403,13 +327,10 @@ function addRecentSearch(prompt: string) {
   if (index > -1) {
     recentSearches.splice(index, 1);
   }
-  // Add to the beginning
   recentSearches.unshift(prompt);
-  // Trim to max size
   if (recentSearches.length > MAX_RECENT_SEARCHES) {
     recentSearches = recentSearches.slice(0, MAX_RECENT_SEARCHES);
   }
-  // Save and re-render
   localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(recentSearches));
   renderRecentSearches();
 }
@@ -418,91 +339,45 @@ function addRecentSearch(prompt: string) {
 const promptInput = document.querySelector(
   '#prompt-input',
 ) as HTMLTextAreaElement;
+
+promptInput.addEventListener('input', () => {
+  promptInput.style.height = 'auto';
+  promptInput.style.height = `${promptInput.scrollHeight}px`;
+});
+
 promptInput.addEventListener('keydown', (e: KeyboardEvent) => {
   if (e.code === 'Enter' && !e.shiftKey) {
-    const prompt = promptInput.value.trim();
-    if (!prompt) {
-      e.preventDefault();
-      return;
-    }
-    // Allow shift+enter for new lines
-    const buttonEl = document.getElementById('generate') as HTMLButtonElement;
-    buttonEl.classList.add('loading');
     e.preventDefault();
-    e.stopPropagation();
-
-    setTimeout(() => {
+    const prompt = promptInput.value.trim();
+    if (prompt) {
+      generateButton.classList.add('loading');
       sendText(prompt);
-      promptInput.value = '';
-    }, 10); // Delay to show loading state
+    }
   }
 });
 
 generateButton.addEventListener('click', (e) => {
   const prompt = promptInput.value.trim();
-  if (!prompt) {
-    return;
-  }
-  const buttonEl = e.currentTarget as HTMLButtonElement;
-  buttonEl.classList.add('loading');
-
-  setTimeout(() => {
-    sendText(prompt);
-  }, 10);
+  if (!prompt) return;
+  generateButton.classList.add('loading');
+  sendText(prompt);
 });
 
-resetButton.addEventListener('click', (e) => {
-  restart();
+resetButton.addEventListener('click', () => restart());
+
+plannerModeToggle.addEventListener('change', () => {
+  isPlannerMode = plannerModeToggle.checked;
+  promptInput.placeholder = isPlannerMode
+    ? "e.g. 'One day in Paris'"
+    : 'Explore places, history, events...';
+  if (!isPlannerMode) hideTimeline();
 });
 
-if (prevCardButton) {
-  prevCardButton.addEventListener('click', () => {
-    navigateCards(-1);
-  });
-}
+closeTimelineButton.addEventListener('click', () => hideTimeline());
 
-if (nextCardButton) {
-  nextCardButton.addEventListener('click', () => {
-    navigateCards(1);
-  });
-}
+exportPlanButton.addEventListener('click', () => exportDayPlan());
 
-if (plannerModeToggle) {
-  plannerModeToggle.addEventListener('change', () => {
-    isPlannerMode = plannerModeToggle.checked;
-    promptInput.placeholder = isPlannerMode
-      ? "Create a day plan in... (e.g. 'Plan a day exploring Central Park' or 'One day in Paris')"
-      : 'Explore places, history, events, or ask about any location...';
-
-    if (!isPlannerMode && timelineContainer) {
-      hideTimeline();
-    }
-  });
-}
-
-if (closeTimelineButton) {
-  closeTimelineButton.addEventListener('click', () => {
-    hideTimeline();
-  });
-}
-
-if (timelineToggle) {
-  timelineToggle.addEventListener('click', () => {
-    showTimeline();
-  });
-}
-
-if (mapOverlay) {
-  mapOverlay.addEventListener('click', () => {
-    hideTimeline();
-  });
-}
-
-if (exportPlanButton) {
-  exportPlanButton.addEventListener('click', () => {
-    exportDayPlan();
-  });
-}
+sidebarToggle.addEventListener('click', () => toggleSidebar());
 
 promptInput.addEventListener('focus', () => {
   if (recentSearches.length > 0) {
@@ -511,7 +386,7 @@ promptInput.addEventListener('focus', () => {
 });
 
 document.addEventListener('click', (event) => {
-  const searchContainer = document.querySelector('.search-container');
+  const searchContainer = document.querySelector('.sidebar-header');
   if (!searchContainer.contains(event.target as Node)) {
     if (recentSearchesContainer) {
       recentSearchesContainer.style.display = 'none';
@@ -528,23 +403,21 @@ function restart() {
   markers.forEach((marker) => marker.setMap(null));
   markers = [];
 
-  lines.forEach((line) => {
-    line.poly.setMap(null);
-    line.geodesicPoly.setMap(null);
-  });
+  lines.forEach((line) => line.geodesicPoly.setMap(null));
   lines = [];
 
-  popUps.forEach((popup) => {
-    popup.popup.setMap(null);
-    if (popup.content && popup.content.remove) popup.content.remove();
-  });
+  popUps.forEach((popup) => popup.popup.setMap(null));
   popUps = [];
 
-  if (cardContainer) cardContainer.innerHTML = '';
-  if (carouselIndicators) carouselIndicators.innerHTML = '';
-  if (cardCarousel) cardCarousel.style.display = 'none';
-  if (timeline) timeline.innerHTML = '';
-  if (timelineContainer) hideTimeline();
+  cardContainer.innerHTML = `<div class="placeholder-content">
+    <i class="fas fa-map-marked-alt"></i>
+    <h2>Start Exploring</h2>
+    <p>Enter a prompt above to discover new places on the map.</p>
+  </div>`;
+  timeline.innerHTML = '';
+  hideTimeline();
+  errorMessage.innerHTML = '';
+  promptInput.value = '';
 }
 
 // Sends the user's prompt to the Google AI and processes the response.
@@ -553,14 +426,10 @@ async function sendText(prompt: string) {
   spinner.classList.remove('hidden');
   errorMessage.innerHTML = '';
   restart();
-  const buttonEl = document.getElementById('generate') as HTMLButtonElement;
+  toggleSidebar(true);
 
   try {
-    let finalPrompt = prompt;
-    if (isPlannerMode) {
-      finalPrompt = prompt + ' day trip';
-    }
-
+    const finalPrompt = isPlannerMode ? `${prompt} day trip` : prompt;
     const updatedInstructions = isPlannerMode
       ? systemInstructions.replace('DAY_PLANNER_MODE', 'true')
       : systemInstructions.replace('DAY_PLANNER_MODE', 'false');
@@ -572,56 +441,28 @@ async function sendText(prompt: string) {
         systemInstruction: updatedInstructions,
         temperature: 1,
         tools: [
-          {
-            functionDeclarations: [
-              locationFunctionDeclaration,
-              lineFunctionDeclaration,
-            ],
-          },
+          {functionDeclarations: [locationFunctionDeclaration, lineFunctionDeclaration]},
         ],
       },
     });
 
-    let text = '';
     let results = false;
     for await (const chunk of response) {
       const fns = chunk.functionCalls ?? [];
       for (const fn of fns) {
-        if (fn.name === 'location') {
-          await setPin(fn.args);
-          results = true;
-        }
-        if (fn.name === 'line') {
-          await setLeg(fn.args);
-          results = true;
-        }
-      }
-
-      if (
-        chunk.candidates &&
-        chunk.candidates.length > 0 &&
-        chunk.candidates[0].content &&
-        chunk.candidates[0].content.parts
-      ) {
-        chunk.candidates[0].content.parts.forEach((part) => {
-          if (part.text) text += part.text;
-        });
-      } else if (chunk.text) {
-        text += chunk.text;
+        results = true;
+        if (fn.name === 'location') await setPin(fn.args);
+        if (fn.name === 'line') await setLeg(fn.args);
       }
     }
 
     if (!results) {
-      throw new Error(
-        'Could not generate any results. Try again, or try a different prompt.',
-      );
+      throw new Error('Could not generate any results. Please try another prompt.');
     }
 
     if (isPlannerMode && dayPlanItinerary.length > 0) {
       dayPlanItinerary.sort(
-        (a, b) =>
-          (a.sequence || Infinity) - (b.sequence || Infinity) ||
-          (a.time || '').localeCompare(b.time || ''),
+        (a, b) => (a.sequence || Infinity) - (b.sequence || Infinity) || (a.time || '').localeCompare(b.time || ''),
       );
       createTimeline();
       showTimeline();
@@ -632,9 +473,9 @@ async function sendText(prompt: string) {
     errorMessage.innerHTML = e.message;
     console.error('Error generating content:', e);
   } finally {
-    buttonEl.classList.remove('loading');
+    generateButton.classList.remove('loading');
+    spinner.classList.add('hidden');
   }
-  spinner.classList.add('hidden');
 }
 
 // Adds a pin (marker and popup) to the map for a given location.
@@ -643,30 +484,14 @@ async function setPin(args) {
   points.push(point);
   bounds.extend(point);
 
-  const marker = new AdvancedMarkerElement({
-    map,
-    position: point,
-    title: args.name,
-  });
+  const marker = new AdvancedMarkerElement({map, position: point, title: args.name});
   markers.push(marker);
   map.panTo(point);
   map.fitBounds(bounds);
 
   const content = document.createElement('div');
-  let timeInfo = '';
-  if (args.time) {
-    timeInfo = `<div style="margin-top: 4px; font-size: 12px; color: #2196F3;">
-                  <i class="fas fa-clock"></i> ${args.time}
-                  ${args.duration ? ` • ${args.duration}` : ''}
-                </div>`;
-  }
-  content.innerHTML = `<b>${args.name}</b><br/>${args.description}${timeInfo}`;
-
+  content.innerHTML = `<b>${args.name}</b>`;
   const popup = new window.Popup(new google.maps.LatLng(point), content);
-
-  if (!isPlannerMode) {
-    popup.setMap(map);
-  }
 
   const locationInfo = {
     name: args.name,
@@ -678,9 +503,7 @@ async function setPin(args) {
     duration: args.duration,
     sequence: args.sequence,
   };
-
   popUps.push(locationInfo);
-
   if (isPlannerMode && args.time) {
     dayPlanItinerary.push(locationInfo);
   }
@@ -688,168 +511,131 @@ async function setPin(args) {
 
 // Adds a line (route) between two locations on the map.
 async function setLeg(args) {
-  const start = {
-    lat: Number(args.start.lat),
-    lng: Number(args.start.lng),
-  };
+  const start = {lat: Number(args.start.lat), lng: Number(args.start.lng)};
   const end = {lat: Number(args.end.lat), lng: Number(args.end.lng)};
-  points.push(start);
-  points.push(end);
+  points.push(start, end);
   bounds.extend(start);
   bounds.extend(end);
   map.fitBounds(bounds);
 
-  const polyOptions = {
-    strokeOpacity: 0.0, // Invisible base line
-    strokeWeight: 3,
-    map,
-  };
-
   const geodesicPolyOptions = {
-    strokeColor: isPlannerMode ? '#2196F3' : '#CC0099',
+    strokeColor: isPlannerMode ? '#007AFF' : '#CC0099',
     strokeOpacity: 1.0,
     strokeWeight: isPlannerMode ? 4 : 3,
     map,
   };
 
   if (isPlannerMode) {
-    geodesicPolyOptions['icons'] = [
-      {
-        icon: {path: 'M 0,-1 0,1', strokeOpacity: 1, scale: 3},
-        offset: '0',
-        repeat: '15px',
-      },
-    ];
+    geodesicPolyOptions['icons'] = [{
+      icon: {path: 'M 0,-1 0,1', strokeOpacity: 1, scale: 3},
+      offset: '0',
+      repeat: '15px',
+    }];
   }
 
-  const poly = new google.maps.Polyline(polyOptions);
   const geodesicPoly = new google.maps.Polyline(geodesicPolyOptions);
-
-  const path = [start, end];
-  poly.setPath(path);
-  geodesicPoly.setPath(path);
+  geodesicPoly.setPath([start, end]);
 
   lines.push({
-    poly,
     geodesicPoly,
     name: args.name,
     transport: args.transport,
     travelTime: args.travelTime,
+    start,
+    end,
   });
 }
 
-// Creates and populates the timeline view for the day plan.
+// Helper function to check if two coordinates are approximately the same.
+function isSameLocation(pos1, pos2_latlng) {
+  const tolerance = 0.0001; // ~11 meters
+  const lat2 = pos2_latlng.lat();
+  const lng2 = pos2_latlng.lng();
+  return (
+    Math.abs(pos1.lat - lat2) < tolerance &&
+    Math.abs(pos1.lng - lng2) < tolerance
+  );
+}
+
+// Helper function to get a Font Awesome icon name for a transport mode.
+function getTransportIcon(transport: string): string {
+  if (!transport) return 'route';
+  const transportLower = transport.toLowerCase();
+  if (transportLower.includes('walk')) return 'walking';
+  if (transportLower.includes('driv') || transportLower.includes('car'))
+    return 'car-side';
+  if (
+    transportLower.includes('transit') ||
+    transportLower.includes('bus') ||
+    transportLower.includes('train') ||
+    transportLower.includes('subway')
+  )
+    return 'train';
+  return 'route'; // Default icon
+}
+
+// Creates and populates the timeline view for the day plan, including travel legs.
 function createTimeline() {
   if (!timeline || dayPlanItinerary.length === 0) return;
   timeline.innerHTML = '';
 
+  const fullItinerary = [];
   dayPlanItinerary.forEach((item, index) => {
+    fullItinerary.push({type: 'stop', data: item});
+    if (index < dayPlanItinerary.length - 1) {
+      const nextItem = dayPlanItinerary[index + 1];
+      const leg = lines.find(
+        (line) =>
+          isSameLocation(line.start, item.position) &&
+          isSameLocation(line.end, nextItem.position),
+      );
+      if (leg) {
+        fullItinerary.push({type: 'travel', data: leg});
+      }
+    }
+  });
+
+  fullItinerary.forEach((itineraryItem) => {
     const timelineItem = document.createElement('div');
     timelineItem.className = 'timeline-item';
-    const timeDisplay = item.time || 'Flexible';
 
-    timelineItem.innerHTML = `
-      <div class="timeline-time">${timeDisplay}</div>
-      <div class="timeline-connector">
-        <div class="timeline-dot"></div>
-        <div class="timeline-line"></div>
-      </div>
-      <div class="timeline-content" data-index="${index}">
-        <div class="timeline-title">${item.name}</div>
-        <div class="timeline-description">${item.description}</div>
-        ${item.duration ? `<div class="timeline-duration">${item.duration}</div>` : ''}
-      </div>
-    `;
-
-    const timelineContent = timelineItem.querySelector('.timeline-content');
-    if (timelineContent) {
-      timelineContent.addEventListener('click', () => {
-        const popupIndex = popUps.findIndex((p) => p.name === item.name);
-        if (popupIndex !== -1) {
-          highlightCard(popupIndex);
-          map.panTo(popUps[popupIndex].position);
-        }
-      });
+    if (itineraryItem.type === 'stop') {
+      const item = itineraryItem.data;
+      timelineItem.innerHTML = `
+        <div class="timeline-time">${item.time || 'Flexible'}</div>
+        <div class="timeline-connector">
+          <div class="timeline-dot"></div>
+          <div class="timeline-line"></div>
+        </div>
+        <div class="timeline-content">
+          <div class="timeline-title">${item.name}</div>
+          <div class="timeline-description">${item.description}</div>
+          ${item.duration ? `<div class="timeline-duration">${item.duration}</div>` : ''}
+        </div>`;
+      timelineItem
+        .querySelector('.timeline-content')
+        ?.addEventListener('click', () => {
+          const popupIndex = popUps.findIndex((p) => p.name === item.name);
+          if (popupIndex !== -1) {
+            highlightCard(popupIndex);
+            map.panTo(popUps[popupIndex].position);
+          }
+        });
+    } else if (itineraryItem.type === 'travel') {
+      const leg = itineraryItem.data;
+      timelineItem.classList.add('transport-item');
+      timelineItem.innerHTML = `
+        <div class="timeline-time"></div>
+        <div class="timeline-connector">
+          <div class="timeline-line"></div>
+        </div>
+        <div class="timeline-content">
+           <i class="fas fa-${getTransportIcon(leg.transport)}"></i>
+          <span>${leg.transport || 'Travel'} (${leg.travelTime || ''})</span>
+        </div>`;
     }
     timeline.appendChild(timelineItem);
   });
-
-  if (lines.length > 0 && isPlannerMode) {
-    const timelineItems = timeline.querySelectorAll('.timeline-item');
-    for (let i = 0; i < timelineItems.length - 1; i++) {
-      const currentItem = dayPlanItinerary[i];
-      const nextItem = dayPlanItinerary[i + 1];
-      const connectingLine = lines.find(
-        (line) =>
-          line.name.includes(currentItem.name) ||
-          line.name.includes(nextItem.name),
-      );
-
-      if (
-        connectingLine &&
-        (connectingLine.transport || connectingLine.travelTime)
-      ) {
-        const transportItem = document.createElement('div');
-        transportItem.className = 'timeline-item transport-item';
-        transportItem.innerHTML = `
-          <div class="timeline-time"></div>
-          <div class="timeline-connector">
-            <div class="timeline-dot" style="background-color: #999;"></div>
-            <div class="timeline-line"></div>
-          </div>
-          <div class="timeline-content transport">
-            <div class="timeline-title">
-              <i class="fas fa-${getTransportIcon(connectingLine.transport || 'travel')}"></i>
-              ${connectingLine.transport || 'Travel'}
-            </div>
-            <div class="timeline-description">${connectingLine.name}</div>
-            ${connectingLine.travelTime ? `<div class="timeline-duration">${connectingLine.travelTime}</div>` : ''}
-          </div>
-        `;
-        timelineItems[i].after(transportItem);
-      }
-    }
-  }
-}
-
-// Returns an appropriate Font Awesome icon class based on transport type.
-function getTransportIcon(transportType: string): string {
-  const type = (transportType || '').toLowerCase();
-  if (type.includes('walk')) {
-    return 'walking';
-  }
-  if (type.includes('car') || type.includes('driv')) {
-    return 'car-side';
-  }
-  if (
-    type.includes('bus') ||
-    type.includes('transit') ||
-    type.includes('public')
-  ) {
-    return 'bus-alt';
-  }
-  if (
-    type.includes('train') ||
-    type.includes('subway') ||
-    type.includes('metro')
-  ) {
-    return 'train';
-  }
-  if (type.includes('bike') || type.includes('cycl')) {
-    return 'bicycle';
-  }
-  if (type.includes('taxi') || type.includes('cab')) {
-    return 'taxi';
-  }
-  if (type.includes('boat') || type.includes('ferry')) {
-    return 'ship';
-  }
-  if (type.includes('plane') || type.includes('fly')) {
-    return 'plane-departure';
-  }
-  {
-    return 'route';
-  } // Default icon
 }
 
 // Generates a placeholder SVG image for location cards.
@@ -859,33 +645,28 @@ function getPlaceholderImage(locationName: string): string {
     hash = locationName.charCodeAt(i) + ((hash << 5) - hash);
   }
   const hue = hash % 360;
-  const saturation = 60 + (hash % 30);
-  const lightness = 50 + (hash % 20);
   const letter = locationName.charAt(0).toUpperCase() || '?';
-
-  return `data:image/svg+xml,${encodeURIComponent(`
-    <svg xmlns="http://www.w3.org/2000/svg" width="300" height="180" viewBox="0 0 300 180">
-      <rect width="300" height="180" fill="hsl(${hue}, ${saturation}%, ${lightness}%)" />
-      <text x="150" y="95" font-family="Arial, sans-serif" font-size="72" fill="white" text-anchor="middle" dominant-baseline="middle">${letter}</text>
-    </svg>
-  `)}`;
+  return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="120" height="100" viewBox="0 0 120 100"><rect width="120" height="100" fill="hsl(${hue}, 50%, 60%)" /><text x="60" y="55" font-family="Inter, sans-serif" font-size="48" fill="white" text-anchor="middle" dominant-baseline="middle">${letter}</text></svg>`)}`;
 }
 
-// Creates and displays location cards in the carousel.
+// Creates and displays location cards in the sidebar.
 function createLocationCards() {
-  if (!cardContainer || !carouselIndicators || popUps.length === 0) return;
+  if (!cardContainer || popUps.length === 0) return;
   cardContainer.innerHTML = '';
-  carouselIndicators.innerHTML = '';
-  cardCarousel.style.display = 'block';
 
   popUps.forEach((location, index) => {
     const card = document.createElement('div');
     card.className = 'location-card';
-    if (isPlannerMode) card.classList.add('day-planner-card');
     if (index === 0) card.classList.add('card-active');
 
-    const imageUrl = getPlaceholderImage(location.name);
-    let cardContent = `<div class="card-image" style="background-image: url('${imageUrl}')"></div>`;
+    let cardContent = `<div class="card-image" style="background-image: url('${getPlaceholderImage(
+      location.name,
+    )}')"></div>`;
+    cardContent += `<div class="card-content">
+      <h3 class="card-title">${location.name}</h3>
+      <p class="card-description">${location.description}</p>
+      ${isPlannerMode && location.duration ? `<div class="card-duration">${location.duration}</div>` : ''}
+    </div>`;
 
     if (isPlannerMode) {
       if (location.sequence) {
@@ -895,65 +676,28 @@ function createLocationCards() {
         cardContent += `<div class="card-time-badge">${location.time}</div>`;
       }
     }
-
-    cardContent += `
-      <div class="card-content">
-        <h3 class="card-title">${location.name}</h3>
-        <p class="card-description">${location.description}</p>
-        ${isPlannerMode && location.duration ? `<div class="card-duration">${location.duration}</div>` : ''}
-        <div class="card-coordinates">
-          ${location.position.lat().toFixed(5)}, ${location.position.lng().toFixed(5)}
-        </div>
-      </div>
-    `;
     card.innerHTML = cardContent;
-
     card.addEventListener('click', () => {
       highlightCard(index);
       map.panTo(location.position);
-      if (isPlannerMode && timeline) highlightTimelineItem(index);
     });
-
     cardContainer.appendChild(card);
-
-    const dot = document.createElement('div');
-    dot.className = 'carousel-dot';
-    if (index === 0) dot.classList.add('active');
-    carouselIndicators.appendChild(dot);
   });
-
-  if (cardCarousel && popUps.length > 0) {
-    cardCarousel.style.display = 'block';
-  }
 }
 
 // Highlights the selected card and corresponding elements.
 function highlightCard(index: number) {
-  activeCardIndex = index;
-  // Fix: Specify HTMLElement type for querySelectorAll to access properties like offsetWidth and offsetLeft.
   const cards = cardContainer?.querySelectorAll<HTMLElement>('.location-card');
   if (!cards) return;
 
   cards.forEach((card) => card.classList.remove('card-active'));
   if (cards[index]) {
     cards[index].classList.add('card-active');
-    const cardWidth = cards[index].offsetWidth;
-    const containerWidth = cardContainer.offsetWidth;
-    const scrollPosition =
-      cards[index].offsetLeft - containerWidth / 2 + cardWidth / 2;
-    cardContainer.scrollTo({left: scrollPosition, behavior: 'smooth'});
-  }
-
-  const dots = carouselIndicators?.querySelectorAll('.carousel-dot');
-  if (dots) {
-    dots.forEach((dot, i) => dot.classList.toggle('active', i === index));
+    cards[index].scrollIntoView({behavior: 'smooth', block: 'center'});
   }
 
   popUps.forEach((popup, i) => {
-    popup.popup.setMap(isPlannerMode ? (i === index ? map : null) : map);
-    if (popup.content) {
-      popup.content.classList.toggle('popup-active', i === index);
-    }
+    popup.popup.setMap(i === index ? map : null);
   });
 
   if (isPlannerMode) highlightTimelineItem(index);
@@ -962,9 +706,7 @@ function highlightCard(index: number) {
 // Highlights the timeline item corresponding to the selected card.
 function highlightTimelineItem(cardIndex: number) {
   if (!timeline) return;
-  const timelineItems = timeline.querySelectorAll(
-    '.timeline-content:not(.transport)',
-  );
+  const timelineItems = timeline.querySelectorAll('.timeline-content');
   timelineItems.forEach((item) => item.classList.remove('active'));
 
   const location = popUps[cardIndex];
@@ -975,15 +717,6 @@ function highlightTimelineItem(cardIndex: number) {
       item.scrollIntoView({behavior: 'smooth', block: 'nearest'});
       break;
     }
-  }
-}
-
-// Allows navigation through cards using arrow buttons.
-function navigateCards(direction: number) {
-  const newIndex = activeCardIndex + direction;
-  if (newIndex >= 0 && newIndex < popUps.length) {
-    highlightCard(newIndex);
-    map.panTo(popUps[newIndex].position);
   }
 }
 
@@ -1000,17 +733,13 @@ function exportDayPlan() {
 
     if (index < dayPlanItinerary.length - 1) {
       const nextItem = dayPlanItinerary[index + 1];
-      const connectingLine = lines.find(
+      const leg = lines.find(
         (line) =>
-          line.name.includes(item.name) || line.name.includes(nextItem.name),
+          isSameLocation(line.start, item.position) &&
+          isSameLocation(line.end, nextItem.position),
       );
-      if (connectingLine) {
-        content += `### Travel to ${nextItem.name}\n`;
-        content += `Method: ${connectingLine.transport || 'Not specified'}\n`;
-        if (connectingLine.travelTime) {
-          content += `Time: ${connectingLine.travelTime}\n`;
-        }
-        content += `\n`;
+      if (leg) {
+        content += `-> Travel via ${leg.transport} (${leg.travelTime})\n\n`;
       }
     }
   });
